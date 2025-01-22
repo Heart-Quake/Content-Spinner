@@ -287,7 +287,6 @@ st.markdown("---")
 
 # Affichage du contenu en fonction du mode
 if st.session_state.mode == "simple":
-    st.markdown("---")
     # Zone de texte pour le spin avec meilleure présentation
     st.subheader("✏️ Entrez votre texte avec spins")
     spin_text = st.text_area(
@@ -346,7 +345,6 @@ if st.session_state.mode == "simple":
                 )
 
 else:
-    st.markdown("---")
     # Mode avancé avec CSV
     st.subheader("📁 1. Chargez votre fichier CSV")
     uploaded_file = st.file_uploader(
