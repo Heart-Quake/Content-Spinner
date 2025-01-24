@@ -7,7 +7,7 @@ import io
 
 # Constantes
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
-ALLOWED_EXTENSIONS = {'csv'}
+ALLOWED_EXTENSIONS = {'csv'}  # Non utilisée car Streamlit gère déjà les extensions
 
 def fix_encoding(text):
     """Corrige l'encodage des caractères et formate les nombres."""
@@ -172,22 +172,17 @@ st.markdown("""
     .main > div {
         padding: 2rem 3rem;
     }
-    .stRadio > div {
+    .stRadio > div {  # Non utilisé
         padding: 1rem;
         background-color: #f0f2f6;
         border-radius: 0.5rem;
     }
-    /* Style pour les titres */
-    h1, h2, h3, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {
-        color: #2BAF9C !important;
-    }
-    /* Style pour les boutons de mode */
-    .mode-container {
+    .mode-container {  # Non utilisé
         display: flex;
         gap: 1rem;
         margin-bottom: 2rem;
     }
-    .mode-button {
+    .mode-button {     # Non utilisé
         flex: 1;
         padding: 1.5rem;
         border: 1px solid #e0e0e0;
@@ -197,19 +192,19 @@ st.markdown("""
         text-align: center;
         transition: all 0.3s ease;
     }
-    .mode-button:hover {
+    .mode-button:hover {  # Non utilisé
         border-color: #2BAF9C;
         background-color: #f8f9fa;
     }
-    .mode-button.selected {
+    .mode-button.selected {  # Non utilisé
         border-color: #2BAF9C;
         background-color: #e8f0fe;
     }
-    .mode-title {
+    .mode-title {  # Non utilisé
         font-weight: bold;
         margin-bottom: 0.5rem;
     }
-    .mode-description {
+    .mode-description {  # Non utilisé
         font-size: 0.9rem;
         color: #666;
     }
