@@ -1,3 +1,38 @@
+# Environnements Python
 venv/
+env/
+.venv/
+.env/
+
+# Cache Python
 __pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Fichiers système
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE et éditeurs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
+# Fichiers temporaires
+*.tmp
+*.temp
+
+# Fichiers de test uploadés
+*.csv
+!exemple.csv
