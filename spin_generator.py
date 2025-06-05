@@ -348,98 +348,148 @@ else:
         help="Format accepté : CSV avec séparateur point-virgule (;)"
     )
 
-    if uploaded_file is not None:
-        # Validation et conversion du CSV
-        df = validate_and_convert_csv(uploaded_file)
+if uploaded_file is not None:
+    # Validation et conversion du CSV
+    df = validate_and_convert_csv(uploaded_file)
+    
+    if df is not None:
+        # Aperçu des données
+        st.subheader("Aperçu des données")
+        st.dataframe(df)
         
-        if df is not None:
-            # Aperçu des données
-            st.subheader("Aperçu des données")
-            st.dataframe(df)
-            
-            # Sélection des colonnes
-            selected_columns = st.multiselect(
-                "Sélectionnez les colonnes à utiliser comme variables",
-                df.columns.tolist(),
-                default=df.columns.tolist()
-            )
-            
-            # Zone de texte pour le spin
-            st.subheader("2. Entrez votre Master Spin")
-            spin_help = "Variables disponibles : " + ", ".join([f"{{{col}}}" for col in selected_columns])
-            spin_text = st.text_area(
-                "Texte avec spins",
-                help=spin_help,
-                height=200,
-                placeholder="Exemple : Le département {Département} compte {Nombre de villes} [villes|communes] pour une population de {Population totale} habitants."
-            )
-            
-            # Validation de la syntaxe du spin
-            is_valid = True
-            if spin_text:
-                is_valid, message = validate_spin_syntax(spin_text)
-                if not is_valid:
-                    st.warning(message)
+        # Sélection des colonnes
+        selected_columns = st.multiselect(
+            "Sélectionnez les colonnes à utiliser comme variables",
+            df.columns.tolist(),
+            default=df.columns.tolist()
+        )
+        
+        # Zone de texte pour le spin
+        st.subheader("2. Entrez votre Master Spin")
+        spin_help = "Variables disponibles : " + ", ".join([f"{{{col}}}" for col in selected_columns])
+        spin_text = st.text_area(
+            "Texte avec spins",
+            help=spin_help,
+            height=200,
+            placeholder="Exemple : Le département {Département} compte {Nombre de villes} [villes|communes] pour une population de {Population totale} habitants."
+        )
+        
+        # Validation de la syntaxe du spin
+        is_valid = True
+        if spin_text:
+            is_valid, message = validate_spin_syntax(spin_text)
+            if not is_valid:
+                st.warning(message)
 
-            # Nombre de prévisualisations (toujours visible)
-            preview_limit = st.number_input(
-                "Nombre de prévisualisations souhaitées",
-                min_value=1,
-                value=len(df)  # Par défaut : nombre total de lignes du CSV
-            )
+        # Nombre de prévisualisations (toujours visible)
+        preview_limit = st.number_input(
+            "Nombre de prévisualisations souhaitées",
+            min_value=1,
+            value=len(df)  # Par défaut : nombre total de lignes du CSV
+        )
 
-            # Bouton de génération (toujours visible)
-            if st.button("🔄 Générer les variations"):
-                if not spin_text:
-                    st.warning("Veuillez entrer un texte avec spins")
-                elif not is_valid:
-                    st.warning("Veuillez corriger la syntaxe du texte")
-                else:
-                    variations_data = []
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
+        # Bouton de génération (toujours visible)
+        if st.button("🔄 Générer les variations"):
+            if not spin_text:
+                st.warning("Veuillez entrer un texte avec spins")
+            elif not is_valid:
+                st.warning("Veuillez corriger la syntaxe du texte")
+            else:
+                variations_data = []
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                
+                for index, row in df.iterrows():
+                    progress = (index + 1) / len(df)
+                    progress_bar.progress(progress)
+                    status_text.text(f"Traitement de la ligne {index + 1}/{len(df)}")
                     
-                    for index, row in df.iterrows():
-                        progress = (index + 1) / len(df)
-                        progress_bar.progress(progress)
-                        status_text.text(f"Traitement de la ligne {index + 1}/{len(df)}")
+                    variables = {col: str(row[col]) for col in selected_columns}
+                    variation = generate_variation(spin_text, variables)
+                    variations_data.append({
+                        'variables': variables,
+                        'text': variation
+                    })
+                
+                progress_bar.empty()
+                status_text.empty()
+                
+                # Sauvegarder les variations dans session_state
+                st.session_state.variations_data = variations_data
+                st.session_state.preview_limit = preview_limit
+
+        # Affichage des variations si elles existent dans session_state
+        if hasattr(st.session_state, 'variations_data') and st.session_state.variations_data:
+            variations_data = st.session_state.variations_data
+            current_preview_limit = getattr(st.session_state, 'preview_limit', len(variations_data))
+            
+            st.subheader(f"Variations générées ({len(variations_data)})")
+            
+            # Utilisation du preview_limit sauvegardé
+            for i, var_data in enumerate(variations_data[:current_preview_limit], 1):
+                with st.expander(f"Variation {i}", expanded=i==1):
+                    # Affichage des variables utilisées
+                    variables_items = list(var_data['variables'].items())
+                    
+                    if variables_items:
+                        # Initialiser l'état du toggle dans session_state
+                        toggle_key = f"show_vars_{i}"
+                        if toggle_key not in st.session_state:
+                            st.session_state[toggle_key] = False
                         
-                        variables = {col: str(row[col]) for col in selected_columns}
-                        variation = generate_variation(spin_text, variables)
-                        variations_data.append({
-                            'variables': variables,
-                            'text': variation
-                        })
-                    
-                    progress_bar.empty()
-                    status_text.empty()
-                    
-                    # Affichage des variations
-                    st.subheader(f"Variations générées ({len(variations_data)})")
-                    
-                    # Utilisation du preview_limit déjà défini
-                    for i, var_data in enumerate(variations_data[:preview_limit], 1):
-                        with st.expander(f"Variation {i}", expanded=i==1):
-                            st.text_area(
-                                "Variables utilisées",
-                                value="\n".join([f"{k} = {v}" for k,v in var_data['variables'].items()]),
-                                height=100
-                            )
-                            st.text_area(
-                                "Texte généré",
-                                value=var_data['text'],
-                                height=400 if i <= 10 else 100,  # 400px ≈ 20 lignes
-                                key=f"var_text_{i}"
-                            )
-                    
-                    # Export CSV
-                    csv_data = generate_csv_download(variations_data)
-                    st.download_button(
-                        label=f"📥 Télécharger les {len(variations_data)} variations (CSV)",
-                        data=csv_data,
-                        file_name="variations_completes.csv",
-                        mime="text/csv"
+                        # Affichage en une seule ligne avec résumé et toggle
+                        if len(variables_items) > 1:
+                            # Créer un résumé des variables
+                            first_var = variables_items[0]
+                            remaining_count = len(variables_items) - 1
+                            
+                            # Affichage condensé avec bouton toggle intégré
+                            if st.session_state[toggle_key]:
+                                # Mode détaillé : toutes les variables avec fond coloré
+                                st.markdown("**📋 Variables utilisées :**")
+                                
+                                # Affichage en colonnes pour un meilleur layout
+                                nb_vars = len(variables_items)
+                                nb_cols = min(3, max(2, nb_vars // 2))
+                                cols = st.columns(nb_cols)
+                                
+                                for idx, (k, v) in enumerate(variables_items):
+                                    with cols[idx % nb_cols]:
+                                        st.markdown(f"• **{k}** : `{v}`")
+                                
+                                # Bouton masquer plus discret
+                                if st.button("🔼 Masquer", key=f"hide_vars_{i}", help="Revenir au mode résumé", use_container_width=False):
+                                    st.session_state[toggle_key] = False
+                                    st.rerun()
+                            else:
+                                # Mode résumé : affichage compact et élégant
+                                col1, col2 = st.columns([5, 1])
+                                with col1:
+                                    st.markdown(f"📋 **{first_var[0]}** : `{first_var[1]}` ・ :gray[+{remaining_count} autres variables]")
+                                with col2:
+                                    if st.button("👁️ Voir", key=f"show_vars_btn_{i}", help=f"Afficher les {remaining_count} autres variables", use_container_width=True):
+                                        st.session_state[toggle_key] = True
+                                        st.rerun()
+                        else:
+                            # Si une seule variable, affichage simple et élégant
+                            var = variables_items[0]
+                            st.markdown(f"📋 **{var[0]}** : `{var[1]}`")
+                        
+                    st.text_area(
+                        "Texte généré",
+                        value=var_data['text'],
+                        height=400 if i <= 10 else 100,  # 400px ≈ 20 lignes
+                        key=f"var_text_{i}"
                     )
+            
+            # Export CSV
+            csv_data = generate_csv_download(variations_data)
+            st.download_button(
+                label=f"📥 Télécharger les {len(variations_data)} variations (CSV)",
+                data=csv_data,
+                file_name="variations_completes.csv",
+                mime="text/csv"
+            )
 
 # Guide d'utilisation amélioré dans la sidebar avec focus contextuel
 with st.sidebar:
