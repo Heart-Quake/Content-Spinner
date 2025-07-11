@@ -104,18 +104,37 @@ def validate_and_convert_csv(uploaded_file):
         st.error(f"Erreur lors de la lecture du CSV : {str(e)}")
         return None
 
+def recursive_spin(text: str) -> str:
+    """
+    Résout récursivement les spins imbriqués de type [a|b|c] et {a|b|c}.
+    Prend en charge les spins imbriqués de profondeur illimitée.
+    """
+    # D'abord les accolades, puis les crochets
+    pattern = re.compile(r'\{([^{}\[\]]*\|[^{}\[\]]*)\}|\[([^\[\]{}]*\|[^\[\]{}]*)\]')
+    while True:
+        match = pattern.search(text)
+        if not match:
+            break
+        # Récupère le groupe non None (accolade ou crochet)
+        spin_content = match.group(1) if match.group(1) is not None else match.group(2)
+        options = [opt.strip() for opt in spin_content.split('|') if opt.strip()]
+        replacement = recursive_spin(random.choice(options))
+        text = text[:match.start()] + replacement + text[match.end():]
+    return text
+
+
+def generate_simple_variation(text):
+    """Génère une variation du texte sans variables, avec spins imbriqués crochets/accolades."""
+    return recursive_spin(text)
+
+
 def generate_variation(text, variables):
-    """Génère une variation du texte."""
+    """Génère une variation du texte avec variables (adressées par [colonne]) et spins imbriqués (accolades uniquement)."""
     result = text
+    # Remplacement des variables CSV : [colonne]
     for var_name, var_value in variables.items():
-        result = result.replace(f"{{{var_name}}}", str(var_value))
-    
-    def replace_spin(match):
-        options = match.group(1).split('|')
-        return random.choice(options)
-    
-    result = re.sub(r'\[(.*?)\]', replace_spin, result)
-    return result
+        result = result.replace(f"[{var_name}]", str(var_value))
+    return recursive_spin(result)
 
 def generate_csv_download(variations_data):
     """Génère le fichier CSV de sortie."""
@@ -149,14 +168,6 @@ def validate_spin_syntax(text):
             return False, "Un spin ne contient aucune option valide"
             
     return True, "Syntaxe valide"
-
-def generate_simple_variation(text):
-    """Génère une variation du texte sans variables."""
-    def replace_spin(match):
-        options = match.group(1).split('|')
-        return random.choice(options)
-    
-    return re.sub(r'\[(.*?)\]', replace_spin, text)
 
 # Configuration de la page avec thème personnalisé
 st.set_page_config(
@@ -287,8 +298,8 @@ if st.session_state.mode == "simple":
     spin_text = st.text_area(
         "Texte avec spins",
         height=150,
-        placeholder="Exemple : [Bonjour|Salut|Hey] tout le monde ! Comment [allez-vous|vas-tu] ?",
-        help="Utilisez les crochets [] pour créer des variations. Séparez les options par des |"
+        placeholder="Exemple : {Bonjour|Salut|Hey} tout le monde ! Comment {allez-vous|vas-tu} ?",
+        help="Utilisez les accolades { } pour créer des variations. Les crochets [] sont réservés aux variables en mode avancé."
     )
     
     # Validation de la syntaxe du spin
@@ -366,12 +377,12 @@ else:
             
             # Zone de texte pour le spin
             st.subheader("2. Entrez votre Master Spin")
-            spin_help = "Variables disponibles : " + ", ".join([f"{{{col}}}" for col in selected_columns])
+            spin_help = "Variables disponibles : " + ", ".join([f"[{col}]" for col in selected_columns])
             spin_text = st.text_area(
                 "Texte avec spins",
-                help=spin_help,
+                help=spin_help + "\nUtilisez les crochets [colonne] pour insérer une variable, et les accolades { ... } pour les spins imbriqués.",
                 height=200,
-                placeholder="Exemple : Le département {Département} compte {Nombre de villes} [villes|communes] pour une population de {Population totale} habitants."
+                placeholder="Exemple : Le département [Département] compte [Nombre de villes] {villes|communes} pour une population de [Population] habitants."
             )
             
             # Validation de la syntaxe du spin
@@ -502,23 +513,11 @@ with st.sidebar:
     if st.session_state.mode == "simple":
         st.markdown("""
         ### ✨ Mode Simple
-        
         1. **✏️ Écrivez votre texte**
-           - Utilisez les crochets `[]` pour créer des variations
+           - Utilisez uniquement les accolades `{}` pour créer des variations
+           - Les spins imbriqués sont supportés (ex : `{plus de {100|cent} ans|un siècle}`)
            - Séparez les options par des `|`
-           - Exemple : `[Bonjour|Salut|Hey] tout le monde !`
-        
-        2. **🔢 Nombre de variations**
-           - Choisissez entre 1 et 100 variations
-           - Chaque variation sera générée aléatoirement
-        
-        3. **👀 Prévisualisation**
-           - Visualisez chaque variation générée
-           - La première variation est automatiquement dépliée
-        
-        4. **💾 Export**
-           - Téléchargez toutes les variations en CSV
-           - Format simple avec une colonne 'Texte généré'
+           - Exemple : `{Bonjour|Salut|Hey} tout le monde !` ou `{très {bon|excellent}|fantastique}`
         """)
         
         # Bouton pour voir le mode avancé
@@ -534,17 +533,14 @@ with st.sidebar:
            - Utilisez un séparateur point-virgule (;)
            - Encodage UTF-8 ou Latin1
            - En-têtes obligatoires pour les variables
-        
         2. **🔠 Variables**
-           - Format : `{nom_colonne}`
-           - Les noms doivent correspondre aux en-têtes
-           - Exemple : `{ville}, {population} habitants`
-        
+           - Format : `[nom_colonne]` (crochets)
+           - Les noms doivent correspondre aux en-têtes du CSV
+           - Exemple : `[ville], [population] habitants`
         3. **✨ Spins**
-           - Combinez variables et spins
-           - Exemple : `[La belle|La grande] ville de {ville}`
-           - Chaque ligne du CSV génère une variation
-        
+           - Utilisez les accolades `{}` pour les spins imbriqués
+           - Exemple : `{La belle|La grande} ville de [ville]`
+           - Les crochets `[]` servent uniquement aux variables
         4. **📊 Export**
            - CSV avec toutes les variables
            - Une colonne pour le texte généré
@@ -561,6 +557,7 @@ with st.sidebar:
     st.markdown("""
         ### 💡 Astuces
         - Les variations sont toujours aléatoires
+        - Les spins imbriqués sont désormais supportés (accolades `{}` et crochets `[]`)
         - Vérifiez la syntaxe avant de générer
         - Prévisualisez avant d'exporter
     """)

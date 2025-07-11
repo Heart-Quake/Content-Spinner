@@ -30,7 +30,8 @@ L'application propose deux modes :
 
 ### 🔧 Fonctionnalités principales
 - **Deux modes de génération** : Simple et Avancé (CSV)
-- **Syntaxe de spin intuitive** : `[option1|option2|option3]`
+- **Syntaxe de spin intuitive** : `[option1|option2|option3]` ou `{option1|option2|option3}`
+- **Spins imbriqués illimités** : `[très [bon|excellent]|fantastique]`, `{plus de {100|cent} ans|un siècle}`
 - **Variables CSV dynamiques** : `{nom_colonne}`
 - **Interface utilisateur moderne** avec Streamlit
 - **Validation en temps réel** de la syntaxe
@@ -76,6 +77,17 @@ pip install -r requirements.txt
 ```
 
 4. **Lancer l'application**
+
+**Option A : Script automatique (recommandé)**
+```bash
+# Sur macOS/Linux
+./run.sh
+
+# Sur Windows
+run.bat
+```
+
+**Option B : Commande manuelle**
 ```bash
 streamlit run spin_generator.py
 ```
@@ -110,8 +122,8 @@ Parfait pour :
 - Projets sans données externes
 
 **Syntaxe supportée :**
-- Spins simples : `[bonjour|salut|hey]`
-- Spins imbriqués : `[très [bon|excellent]|fantastique]`
+- Spins simples : `[bonjour|salut|hey]` ou `{bonjour|salut|hey}`
+- Spins imbriqués illimités : `[très [bon|excellent]|fantastique]`, `{plus de {100|cent} ans|un siècle}`
 
 ### 🗃️ Mode Avancé (CSV)
 Idéal pour :
@@ -122,6 +134,7 @@ Idéal pour :
 **Syntaxe supportée :**
 - Variables CSV : `{nom_colonne}`
 - Combinaison : `{ville} est une [belle|magnifique] {type_ville}`
+- Spins imbriqués crochets/accolades : `{plus de {100|cent} ans|un siècle}`
 
 ## 📁 Format des fichiers
 
@@ -148,14 +161,43 @@ Les variations générées sont exportées au format CSV avec les colonnes :
 ### Exemple Mode Simple
 **Entrée :**
 ```
-[Bonjour|Salut|Hello] [tout le monde|à tous] !
+{Découvrez|Explorez|Profitez de|Faites connaissance avec} {l’univers|le monde|l’histoire|la gamme} {unique|exceptionnelle|incomparable|emblématique} de {Peugeot|la marque Peugeot|la célèbre marque Peugeot}.
+
+Depuis {plus de {100|cent} ans|des décennies|des générations|un siècle}, {Peugeot|la maison Peugeot|cette marque iconique} {propose|offre|développe} des {véhicules|modèles|automobiles} {innovants|performants|élégants|à la pointe de la technologie}.
+
+Parmi ses {modèles phares|véhicules emblématiques|créations iconiques}, on retrouve :
+- La {Peugeot {208|308}|gamme {compacte|urbaine}} idéale pour {la ville|les trajets urbains|les citadins exigeants},
+- Le SUV {3008|5008}, {parfait|idéal} pour {les familles|les aventuriers|ceux qui aiment les grands espaces},
+- Les {utilitaires|véhicules professionnels} tels que le {Peugeot Partner|Expert|Boxer}, conçus pour {les professionnels|les artisans|les entreprises}.
+
+Avec {son design soigné|son style audacieux|ses lignes dynamiques}, {Peugeot|la marque Peugeot} {séduit|attire|conquiert} {les conducteurs|les passionnés d’automobile|les automobilistes} en quête de {performance|confort|technologie avancée}.
+
+{Choisir|Adopter|Opter pour} un véhicule Peugeot, c’est {faire confiance|s’assurer} d’un {savoir-faire reconnu|héritage automobile|engagement envers l’innovation} et d’une {qualité irréprochable|fiabilité remarquable}.
+
+{Découvrez dès maintenant|Ne perdez plus de temps, découvrez|Faites un tour dans} l’univers Peugeot et {trouvez|sélectionnez|dénichez} {le modèle qui vous correspond|votre future voiture|l’automobile de vos rêves} !
 ```
 
 **Sortie (3 variations) :**
 ```
-Bonjour tout le monde !
-Salut à tous !
-Hello tout le monde !
+Découvrez l’univers unique de Peugeot.
+Depuis plus de 100 ans, Peugeot propose des véhicules innovants.
+Parmi ses modèles phares, on retrouve :
+- La Peugeot 208 idéale pour la ville,
+- Le SUV 3008, parfait pour les familles,
+- Les utilitaires tels que le Peugeot Partner, conçus pour les professionnels.
+Avec son design soigné, Peugeot séduit les conducteurs en quête de performance.
+Choisir un véhicule Peugeot, c’est faire confiance d’un savoir-faire reconnu et d’une qualité irréprochable.
+Découvrez dès maintenant l’univers Peugeot et trouvez le modèle qui vous correspond !
+
+Explorez le monde exceptionnel de la marque Peugeot.
+Depuis un siècle, la maison Peugeot développe des modèles élégants.
+Parmi ses créations iconiques, on retrouve :
+- La gamme compacte idéale pour les citadins exigeants,
+- Le SUV 5008, idéal pour les aventuriers,
+- Les véhicules professionnels tels que le Expert, conçus pour les entreprises.
+Avec ses lignes dynamiques, la marque Peugeot conquiert les passionnés d’automobile en quête de technologie avancée.
+Opter pour un véhicule Peugeot, c’est s’assurer d’un engagement envers l’innovation et d’une fiabilité remarquable.
+Faites un tour dans l’univers Peugeot et dénichez l’automobile de vos rêves !
 ```
 
 ### Exemple Mode Avancé
@@ -185,6 +227,9 @@ spin_tool/
 ├── requirements.txt       # Dépendances Python
 ├── README.md             # Documentation
 ├── .gitignore           # Fichiers à ignorer par Git
+├── run.sh               # Script de lancement (macOS/Linux)
+├── run.bat              # Script de lancement (Windows)
+├── exemple.csv          # Fichier CSV d'exemple
 ├── DR SEO Header.svg    # Logo de l'application
 └── venv/               # Environnement virtuel (ignoré par Git)
 ```
