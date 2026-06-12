@@ -230,7 +230,7 @@ spin_tool/
 ├── run.sh               # Script de lancement (macOS/Linux)
 ├── run.bat              # Script de lancement (Windows)
 ├── exemple.csv          # Fichier CSV d'exemple
-├── logo-full-cream.png  # Logo Yuri & Neil
+├── logo-sidebar-cream.png  # Logo Yuri & Neil optimise pour la sidebar
 └── venv/               # Environnement virtuel (ignoré par Git)
 ```
 
