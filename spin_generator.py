@@ -507,8 +507,6 @@ else:
 
 # Guide d'utilisation amélioré dans la sidebar avec focus contextuel
 with st.sidebar:
-    st.image("logo-full-cream.png", use_container_width=True)
-    
     st.header("📖 Guide d'utilisation")
     
     # Affichage conditionnel du guide selon le mode actif
