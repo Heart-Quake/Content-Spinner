@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import importlib
 import io
 import json
 import re
@@ -9,7 +10,7 @@ import uuid
 
 import streamlit as st
 
-from automation_seo_theme import apply_automation_seo_theme
+import automation_seo_theme
 from csv_service import CSV_SEPARATOR, EXPORT_ENCODING, MAX_FILE_SIZE, CsvLoadError, load_csv_bytes
 from template_engine import (
     TemplateDefinition,
@@ -18,6 +19,9 @@ from template_engine import (
     find_unknown_variables,
     parse_template,
 )
+
+automation_seo_theme = importlib.reload(automation_seo_theme)
+apply_automation_seo_theme = automation_seo_theme.apply_automation_seo_theme
 
 
 APP_TITLE = "Générateur de Spin"
