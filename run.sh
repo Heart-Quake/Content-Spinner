@@ -1,20 +1,33 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# Script de lancement du Générateur de Spin Content
-# Utilise Python 3.12 avec Streamlit installé
+set -euo pipefail
+
+# Script de lancement robuste pour macOS/Linux.
 
 echo "🚀 Lancement du Générateur de Spin Content..."
 
-# Vérifier si l'environnement virtuel existe
-if [ ! -d "venv" ]; then
-    echo "❌ Environnement virtuel non trouvé. Créez-le avec :"
-    echo "   python -m venv venv"
-    echo "   source venv/bin/activate"
-    echo "   pip install -r requirements.txt"
-    exit 1
+if [ ! -x "venv/bin/python" ]; then
+    echo "📦 Environnement virtuel introuvable, création en cours..."
+
+    if command -v python3.11 >/dev/null 2>&1; then
+        PYTHON_BIN="python3.11"
+    elif command -v python3 >/dev/null 2>&1; then
+        PYTHON_BIN="python3"
+    else
+        echo "❌ Python 3.11+ est requis pour lancer l'application."
+        exit 1
+    fi
+
+    "$PYTHON_BIN" -m venv venv
 fi
 
-# Lancer Streamlit avec Python 3.12
-./venv/bin/python3.12 -m streamlit run spin_generator.py
+if ! ./venv/bin/python - <<'PY' >/dev/null 2>&1
+import pandas  # noqa: F401
+import streamlit  # noqa: F401
+PY
+then
+    echo "📥 Installation des dépendances..."
+    ./venv/bin/python -m pip install -r requirements.txt
+fi
 
-echo "✅ Application fermée" 
+exec ./venv/bin/python -m streamlit run spin_generator.py --server.headless true --server.port 8501

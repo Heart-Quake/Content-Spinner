@@ -1,563 +1,990 @@
-import streamlit as st
-import random
-import re
-import pandas as pd
+from __future__ import annotations
+
 import csv
+import hashlib
 import io
+import json
+import re
+import uuid
+
+import streamlit as st
 
 from automation_seo_theme import apply_automation_seo_theme
-
-# Constantes
-MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
-ALLOWED_EXTENSIONS = {'csv'}  # Non utilisée car Streamlit gère déjà les extensions
-
-def fix_encoding(text):
-    """Corrige l'encodage des caractères et formate les nombres."""
-    if not isinstance(text, str):
-        text = str(text)
-    
-    # Si le texte est un nombre avec décimale .0, le convertir en entier
-    try:
-        # Vérifie si c'est un nombre avec décimale
-        if '.' in text:
-            number = float(text)
-            # Si c'est un nombre entier (ex: 123.0), enlever la décimale
-            if number.is_integer():
-                return str(int(number))
-        # Si c'est un nombre sans décimale, le retourner tel quel
-        if text.isdigit():
-            return text
-    except ValueError:
-        # Si ce n'est pas un nombre, continuer avec le traitement normal
-        pass
-    
-    # Dictionnaire de conversion pour les caractères mal encodés
-    fixes = {
-        'Ã¨': 'è',
-        'Ã©': 'é',
-        'Ã': 'à',
-        'Ã´': 'ô',
-        'Ã®': 'î',
-        'Ã¯': 'ï',
-        'Ã¢': 'â',
-        'Ã»': 'û',
-        'Ã¹': 'ù',
-        'Ã§': 'ç',
-        'É': 'É',
-        'è': 'è',
-        'é': 'é',
-        'à': 'à',
-        'ù': 'ù',
-        'â': 'â',
-        'ê': 'ê',
-        'î': 'î',
-        'ï': 'ï',
-        'ç': 'ç',
-        'û': 'û',
-        'ô': 'ô',
-        'ö': 'ö',
-        'ü': 'ü'
-    }
-    
-    # Application des corrections
-    for wrong, right in fixes.items():
-        text = text.replace(wrong, right)
-    
-    return text
-
-@st.cache_data
-def validate_and_convert_csv(uploaded_file):
-    """Vérifie et convertit le fichier CSV avec mise en cache."""
-    try:
-        # Vérification de la taille du fichier
-        file_size = len(uploaded_file.getvalue())
-        if file_size > MAX_FILE_SIZE:
-            st.error(f"Le fichier est trop volumineux. Taille maximale : {MAX_FILE_SIZE/1024/1024:.1f}MB")
-            return None
-            
-        # Premier essai en UTF-8
-        try:
-            df = pd.read_csv(uploaded_file, sep=';', encoding='utf-8')
-        except UnicodeDecodeError:
-            # Si UTF-8 échoue, on essaie en latin1
-            uploaded_file.seek(0)
-            df = pd.read_csv(uploaded_file, sep=';', encoding='latin1')
-        
-        # Validation basique du contenu
-        if df.empty:
-            st.error("Le fichier CSV est vide")
-            return None
-            
-        if len(df.columns) < 1:
-            st.error("Le fichier CSV doit contenir au moins une colonne")
-            return None
-        
-        # Conversion des colonnes en string et nettoyage
-        for col in df.columns:
-            df[col] = df[col].astype(str).apply(fix_encoding)
-        
-        # Correction de l'encodage des noms de colonnes
-        df.columns = [fix_encoding(col) for col in df.columns]
-        
-        st.success(f"CSV chargé avec succès : {len(df)} lignes, {len(df.columns)} colonnes")
-        return df
-        
-    except Exception as e:
-        st.error(f"Erreur lors de la lecture du CSV : {str(e)}")
-        return None
-
-def recursive_spin(text: str) -> str:
-    """
-    Résout récursivement les spins imbriqués de type [a|b|c] et {a|b|c}.
-    Prend en charge les spins imbriqués de profondeur illimitée.
-    """
-    # D'abord les accolades, puis les crochets
-    pattern = re.compile(r'\{([^{}\[\]]*\|[^{}\[\]]*)\}|\[([^\[\]{}]*\|[^\[\]{}]*)\]')
-    while True:
-        match = pattern.search(text)
-        if not match:
-            break
-        # Récupère le groupe non None (accolade ou crochet)
-        spin_content = match.group(1) if match.group(1) is not None else match.group(2)
-        options = [opt.strip() for opt in spin_content.split('|') if opt.strip()]
-        replacement = recursive_spin(random.choice(options))
-        text = text[:match.start()] + replacement + text[match.end():]
-    return text
-
-
-def generate_simple_variation(text):
-    """Génère une variation du texte sans variables, avec spins imbriqués crochets/accolades."""
-    return recursive_spin(text)
-
-
-def generate_variation(text, variables):
-    """Génère une variation du texte avec variables (adressées par [colonne]) et spins imbriqués (accolades uniquement)."""
-    result = text
-    # Remplacement des variables CSV : [colonne]
-    for var_name, var_value in variables.items():
-        result = result.replace(f"[{var_name}]", str(var_value))
-    return recursive_spin(result)
-
-def generate_csv_download(variations_data):
-    """Génère le fichier CSV de sortie."""
-    output = io.StringIO()
-    writer = csv.writer(output)
-    
-    if variations_data and len(variations_data) > 0:
-        headers = list(variations_data[0]['variables'].keys()) + ['Texte généré']
-        writer.writerow(headers)
-        for row in variations_data:
-            writer.writerow(
-                [row['variables'][col] for col in row['variables'].keys()] + 
-                [row['text']]
-            )
-    return output.getvalue()
-
-def validate_spin_syntax(text):
-    """Valide la syntaxe des spins dans le texte."""
-    if not text:
-        return False, "Le texte est vide"
-        
-    # Vérifie l'équilibre des crochets
-    if text.count('[') != text.count(']'):
-        return False, "Les crochets [] ne sont pas équilibrés"
-        
-    # Vérifie que chaque spin a au moins une option
-    spin_pattern = r'\[(.*?)\]'
-    for match in re.finditer(spin_pattern, text):
-        options = match.group(1).split('|')
-        if not options or all(not opt.strip() for opt in options):
-            return False, "Un spin ne contient aucune option valide"
-            
-    return True, "Syntaxe valide"
-
-# Configuration de la page avec thème personnalisé
-st.set_page_config(
-    page_title="Générateur de Spin", 
-    page_icon="🔄",
-    layout="wide",
-    initial_sidebar_state="expanded"
+from csv_service import CSV_SEPARATOR, EXPORT_ENCODING, MAX_FILE_SIZE, CsvLoadError, load_csv_bytes
+from template_engine import (
+    TemplateDefinition,
+    TemplateSyntaxError,
+    UnknownVariableError,
+    find_unknown_variables,
+    parse_template,
 )
 
-# Style personnalisé avec ajout du style pour les boutons de mode et les titres
-st.markdown("""
-    <style>
-    .main > div {
-        padding: 2rem 3rem;
-    }
-    .stRadio > div {  # Non utilisé
-        padding: 1rem;
-        background-color: #f0f2f6;
-        border-radius: 0.5rem;
-    }
-    .mode-container {  # Non utilisé
-        display: flex;
-        gap: 1rem;
-        margin-bottom: 2rem;
-    }
-    .mode-button {     # Non utilisé
-        flex: 1;
-        padding: 1.5rem;
-        border: 1px solid #e0e0e0;
-        border-radius: 0.5rem;
-        background-color: white;
-        cursor: pointer;
-        text-align: center;
-        transition: all 0.3s ease;
-    }
-    .mode-button:hover {  # Non utilisé
-        border-color: #2BAF9C;
-        background-color: #f8f9fa;
-    }
-    .mode-button.selected {  # Non utilisé
-        border-color: #2BAF9C;
-        background-color: #e8f0fe;
-    }
-    .mode-title {  # Non utilisé
-        font-weight: bold;
-        margin-bottom: 0.5rem;
-    }
-    .mode-description {  # Non utilisé
-        font-size: 0.9rem;
-        color: #666;
-    }
-    /* Style amélioré pour les boutons de mode */
-    .stButton button {
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        transform: scale(1);
-        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-    }
-    
-    .stButton button:hover {
-        transform: scale(1.02);
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-    }
-    
-    .stButton button:active {
-        transform: scale(0.98);
-    }
-    
-    .stButton button[kind="primary"] {
-        background-color: #2BAF9C;
-        border-color: #2BAF9C;
-    }
-    
-    .stButton button[kind="secondary"] {
-        border: 1px solid #2BAF9C;
-        color: #2BAF9C;
-        background-color: transparent;
-    }
-    
-    .stButton button[kind="secondary"]:hover {
-        background-color: rgba(43, 175, 156, 0.1);
-    }
-    </style>
-""", unsafe_allow_html=True)
+
+APP_TITLE = "Générateur de Spin"
+MAX_PREVIEW_ROWS = 50
+MAX_SIMPLE_GENERATIONS = 10_000
+DEFAULT_SIMPLE_COUNT = 10
+DEFAULT_SIMPLE_PREVIEW = 10
+DEFAULT_ADVANCED_PREVIEW = 10
+DEFAULT_MULTI_PREVIEW = 5
+SIMPLE_RESULT_KEY = "simple_result"
+ADVANCED_RESULT_KEY = "advanced_result"
+MULTI_RESULT_KEY = "multi_result"
+MULTI_FIELD_IDS_KEY = "multi_field_ids"
+MULTI_FIELD_NAME_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
+
+
+st.set_page_config(
+    page_title=APP_TITLE,
+    page_icon="🔄",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 apply_automation_seo_theme()
 
-# Titre principal avec emoji corrigé
-st.title("🔄 Générateur de Spin")
 
-# Création des boutons de mode personnalisés
-st.markdown("### 📋 Mode de fonctionnement")
+@st.cache_data(show_spinner=False)
+def load_cached_dataset(file_bytes: bytes):
+    """Charge le CSV une seule fois par contenu de fichier."""
+    dataset = load_csv_bytes(file_bytes)
+    return dataset.dataframe, dataset.encoding
 
-# Initialisation du mode par défaut si non défini
-if "mode" not in st.session_state:
-    st.session_state.mode = "simple"
 
-def switch_to_simple():
-    st.session_state.mode = "simple"
+def set_mode(mode: str) -> None:
+    """Bascule entre les deux parcours de génération."""
+    st.session_state.mode = mode
 
-def switch_to_advanced():
-    st.session_state.mode = "advanced"
 
-col1, col2 = st.columns(2)
+def clear_stale_widget_state() -> None:
+    """Supprime les clés internes Streamlit devenues invalides après un refactor d’UI."""
+    stale_keys = [
+        key
+        for key in st.session_state.keys()
+        if isinstance(key, str) and key.startswith("$$WIDGET_ID")
+    ]
+    for key in stale_keys:
+        del st.session_state[key]
 
-with col1:
-    st.button(
-        "✨ Mode Simple",
-        help="Générez des variations sans variables",
-        on_click=switch_to_simple,
-        type="primary" if st.session_state.mode == "simple" else "secondary",
-        use_container_width=True
+
+def hash_file_content(file_bytes: bytes) -> str:
+    """Fabrique une signature stable pour invalider les résultats obsolètes."""
+    return hashlib.sha1(file_bytes).hexdigest()
+
+
+def build_simple_signature(template_text: str, total_count: int, preview_count: int) -> tuple[str, str, int, int]:
+    """Construit la signature des paramètres du mode simple."""
+    return ("simple", template_text.strip(), total_count, preview_count)
+
+
+def build_advanced_signature(
+    file_hash: str,
+    selected_columns: list[str],
+    template_text: str,
+    preview_count: int,
+) -> tuple[str, str, tuple[str, ...], str, int]:
+    """Construit la signature des paramètres du mode CSV."""
+    return ("advanced", file_hash, tuple(selected_columns), template_text.strip(), preview_count)
+
+
+def build_multi_signature(
+    file_hash: str,
+    selected_columns: list[str],
+    fields: list[dict[str, str]],
+    preview_count: int,
+) -> tuple:
+    """Construit la signature du mode multi-champs."""
+    frozen_fields = tuple((field["name"], field["text"].strip()) for field in fields)
+    return ("multi", file_hash, tuple(selected_columns), frozen_fields, preview_count)
+
+
+def _multi_name_key(field_id: str) -> str:
+    return f"multi_name_{field_id}"
+
+
+def _multi_text_key(field_id: str) -> str:
+    return f"multi_text_{field_id}"
+
+
+def _new_multi_field_id() -> str:
+    return uuid.uuid4().hex
+
+
+def ensure_multi_fields_initialized() -> None:
+    """Initialise la liste des champs multi avec une première entrée vide."""
+    if MULTI_FIELD_IDS_KEY not in st.session_state:
+        st.session_state[MULTI_FIELD_IDS_KEY] = [_new_multi_field_id()]
+
+
+def add_multi_field() -> None:
+    """Ajoute un nouveau champ à générer."""
+    st.session_state[MULTI_FIELD_IDS_KEY].append(_new_multi_field_id())
+
+
+def remove_multi_field(field_id: str) -> None:
+    """Supprime un champ et nettoie l’état des widgets associés."""
+    ids = st.session_state.get(MULTI_FIELD_IDS_KEY, [])
+    if len(ids) <= 1:
+        return
+    st.session_state[MULTI_FIELD_IDS_KEY] = [item_id for item_id in ids if item_id != field_id]
+    st.session_state.pop(_multi_name_key(field_id), None)
+    st.session_state.pop(_multi_text_key(field_id), None)
+
+
+def collect_multi_fields() -> list[dict[str, str]]:
+    """Lit les champs courants depuis session_state en préservant l’ordre d’affichage."""
+    fields: list[dict[str, str]] = []
+    for field_id in st.session_state.get(MULTI_FIELD_IDS_KEY, []):
+        fields.append(
+            {
+                "id": field_id,
+                "name": st.session_state.get(_multi_name_key(field_id), "").strip(),
+                "text": st.session_state.get(_multi_text_key(field_id), ""),
+            }
+        )
+    return fields
+
+
+def serialize_multi_fields_config(field_ids: list[str]) -> str:
+    """Sérialise les champs en dict plat {nom: template} quand les noms sont propres.
+
+    Retombe sur le format liste [{name, text}] si un nom est vide ou dupliqué
+    (typiquement pendant une édition en cours), afin de ne pas perdre de données.
+    """
+    pairs = [
+        (
+            st.session_state.get(_multi_name_key(field_id), ""),
+            st.session_state.get(_multi_text_key(field_id), ""),
+        )
+        for field_id in field_ids
+    ]
+    names = [name for name, _ in pairs]
+    has_empty = any(not name.strip() for name in names)
+    has_duplicates = len(set(names)) != len(names)
+
+    if has_empty or has_duplicates:
+        payload = [{"name": name, "text": text} for name, text in pairs]
+    else:
+        payload = {name: text for name, text in pairs}
+
+    return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
+def parse_multi_fields_payload(payload) -> list[tuple[str, str]]:
+    """Accepte deux formats : dict plat {nom: template} ou liste [{name, text}]."""
+    if isinstance(payload, dict):
+        if not payload:
+            raise ValueError("Le JSON est vide.")
+        entries: list[tuple[str, str]] = []
+        for name, text in payload.items():
+            if not isinstance(text, str):
+                raise ValueError(f"Champ « {name} » : la valeur doit être une chaîne de caractères.")
+            entries.append((str(name), text))
+        return entries
+
+    if isinstance(payload, list):
+        if not payload:
+            raise ValueError("La liste de champs est vide.")
+        entries = []
+        for index, entry in enumerate(payload, start=1):
+            if not isinstance(entry, dict) or "name" not in entry or "text" not in entry:
+                raise ValueError(f"Entrée #{index} : chaque champ doit contenir les clés 'name' et 'text'.")
+            entries.append((str(entry["name"]), str(entry["text"])))
+        return entries
+
+    raise ValueError("Le JSON doit être soit un objet {nom: template}, soit une liste [{name, text}].")
+
+
+def load_multi_fields_from_json(raw_json: str) -> None:
+    """Remplace les champs courants par ceux d’un fichier JSON importé."""
+    payload = json.loads(raw_json)
+    entries = parse_multi_fields_payload(payload)
+
+    for old_id in list(st.session_state.get(MULTI_FIELD_IDS_KEY, [])):
+        st.session_state.pop(_multi_name_key(old_id), None)
+        st.session_state.pop(_multi_text_key(old_id), None)
+
+    new_ids: list[str] = []
+    for name, text in entries:
+        field_id = _new_multi_field_id()
+        new_ids.append(field_id)
+        st.session_state[_multi_name_key(field_id)] = name
+        st.session_state[_multi_text_key(field_id)] = text
+
+    st.session_state[MULTI_FIELD_IDS_KEY] = new_ids
+
+
+def render_styles() -> None:
+    """Allège la feuille de style et supprime les sélecteurs morts."""
+    st.markdown(
+        """
+        <style>
+        .main > div {
+            padding: 2rem 2.5rem 2.5rem;
+        }
+
+        .block-container {
+            max-width: 1400px;
+        }
+
+        .stButton button {
+            transition: all 0.2s ease;
+            transform: translateY(0);
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+        }
+
+        .stButton button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 14px rgba(15, 23, 42, 0.08);
+        }
+
+        .stButton button[kind="primary"] {
+            background-color: #0f766e;
+            border-color: #0f766e;
+        }
+
+        .stButton button[kind="secondary"] {
+            border: 1px solid #0f766e;
+            color: #0f766e;
+            background-color: transparent;
+        }
+
+        .stButton button[kind="secondary"]:hover {
+            background-color: rgba(15, 118, 110, 0.08);
+        }
+
+        .stDownloadButton button {
+            width: 100%;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
     )
 
-with col2:
-    st.button(
-        "🔧 Mode Avancé (CSV)",
-        help="Utilisez un fichier CSV pour les variables",
-        on_click=switch_to_advanced,
-        type="primary" if st.session_state.mode == "advanced" else "secondary",
-        use_container_width=True
-    )
 
-# Séparateur visuel
-st.markdown("---")
+def show_result_mismatch(result_key: str, current_signature: tuple) -> None:
+    """Évite d’afficher des résultats devenus faux après modification des entrées."""
+    stored_result = st.session_state.get(result_key)
+    if stored_result and stored_result.get("signature") != current_signature:
+        st.info("Les résultats affichés ne correspondent plus aux entrées courantes. Relancez la génération.")
 
-# Affichage du contenu en fonction du mode
-if st.session_state.mode == "simple":
-    # Zone de texte pour le spin avec meilleure présentation
-    st.subheader("✏️ Entrez votre texte avec spins")
-    spin_text = st.text_area(
-        "Texte avec spins",
-        height=150,
-        placeholder="Exemple : {Bonjour|Salut|Hey} tout le monde ! Comment {allez-vous|vas-tu} ?",
-        help="Utilisez les accolades { } pour créer des variations. Les crochets [] sont réservés aux variables en mode avancé."
-    )
-    
-    # Validation de la syntaxe du spin
-    is_valid = True
-    if spin_text:
-        is_valid, message = validate_spin_syntax(spin_text)
-        if not is_valid:
-            st.warning(message)
-    
-    # Nombre de variations à générer (toujours visible, sans limite)
-    nb_variations = st.number_input(
-        "Nombre de variations à générer",
-        min_value=1,
-        value=10  # Valeur par défaut de 10 pour le mode simple
-    )
-    
-    # Bouton de génération (toujours visible)
-    if st.button("🔄 Générer les variations"):
-        if not spin_text:
-            st.warning("Veuillez entrer un texte avec spins")
-        elif not is_valid:
-            st.warning("Veuillez corriger la syntaxe du texte")
+
+def inspect_template(
+    template_text: str,
+    *,
+    allow_variables: bool,
+    selected_columns: list[str] | None = None,
+) -> TemplateDefinition | None:
+    """Valide le template et remonte les erreurs de manière explicite."""
+    stripped_text = template_text.strip()
+    if not stripped_text:
+        return None
+
+    try:
+        template = parse_template(stripped_text, allow_variables=allow_variables)
+    except TemplateSyntaxError as error:
+        st.error(str(error))
+        return None
+
+    if allow_variables:
+        available_columns = selected_columns or []
+        unknown_variables = find_unknown_variables(template, available_columns)
+        if unknown_variables:
+            missing_list = ", ".join(f"[{name}]" for name in unknown_variables)
+            st.error(f"Variables introuvables dans les colonnes sélectionnées : {missing_list}")
+            return None
+
+        if template.variable_names:
+            detected_list = ", ".join(f"[{name}]" for name in template.variable_names)
+            st.caption(f"Variables détectées dans le template : {detected_list}")
         else:
-            variations = []
-            for i in range(nb_variations):
-                variation = generate_simple_variation(spin_text)
-                variations.append(variation)
-            
-            # Affichage des variations
-            st.subheader(f"Variations générées ({len(variations)})")
-            for i, variation in enumerate(variations, 1):
-                with st.expander(f"Variation {i}", expanded=i==1):
-                    st.text_area(
-                        "Texte généré",
-                        value=variation,
-                        height=400 if i <= 10 else 100,  # 400px ≈ 20 lignes
-                        key=f"var_{i}"
-                    )
-            
-            # Export CSV
-            if variations:
-                df_export = pd.DataFrame(variations, columns=['Texte généré'])
-                csv = df_export.to_csv(index=False)
-                st.download_button(
-                    label="📥 Télécharger les variations (CSV)",
-                    data=csv,
-                    file_name="variations_simples.csv",
-                    mime="text/csv"
-                )
+            st.caption("Aucune variable CSV détectée. Le texte généré sera identique pour chaque ligne hors spins.")
 
-else:
-    # Mode avancé avec CSV
+    return template
+
+
+def create_csv_buffer(headers: list[str]) -> tuple[io.StringIO, csv.writer]:
+    """Prépare un export CSV compatible Excel FR (terminateur CRLF conforme RFC 4180)."""
+    buffer = io.StringIO(newline="")
+    writer = csv.writer(buffer, delimiter=CSV_SEPARATOR, lineterminator="\r\n")
+    writer.writerow(headers)
+    return buffer, writer
+
+
+def finalize_csv_buffer(buffer: io.StringIO) -> bytes:
+    """Encode le CSV avec BOM UTF-8 pour améliorer l’ouverture dans Excel."""
+    return buffer.getvalue().encode(EXPORT_ENCODING)
+
+
+def generate_simple_result(template: TemplateDefinition, total_count: int, preview_count: int) -> dict[str, object]:
+    """Génère le lot simple sans stocker tout l’aperçu dans l’interface."""
+    preview_rows: list[str] = []
+    buffer, writer = create_csv_buffer(["Texte généré"])
+    progress_bar = st.progress(0.0, text="Préparation de la génération...")
+    update_every = max(1, total_count // 100)
+
+    for index in range(total_count):
+        generated_text = template.render()
+        writer.writerow([generated_text])
+
+        if index < preview_count:
+            preview_rows.append(generated_text)
+
+        processed_count = index + 1
+        if processed_count == 1 or processed_count % update_every == 0 or processed_count == total_count:
+            progress_bar.progress(processed_count / total_count, text=f"Génération {processed_count}/{total_count}")
+
+    progress_bar.empty()
+
+    return {
+        "preview_rows": preview_rows,
+        "download_bytes": finalize_csv_buffer(buffer),
+        "total_count": total_count,
+    }
+
+
+def generate_advanced_result(
+    template: TemplateDefinition,
+    dataframe,
+    selected_columns: list[str],
+    preview_count: int,
+) -> dict[str, object]:
+    """Génère les variations CSV avec un aperçu limité pour garder l’UI fluide."""
+    preview_rows: list[dict[str, object]] = []
+    headers = list(selected_columns) + ["Texte généré"]
+    buffer, writer = create_csv_buffer(headers)
+    total_count = len(dataframe)
+    progress_bar = st.progress(0.0, text="Préparation des lignes CSV...")
+    update_every = max(1, total_count // 100)
+
+    for index, row_values in enumerate(dataframe[selected_columns].itertuples(index=False, name=None), start=1):
+        variables = {column: value for column, value in zip(selected_columns, row_values)}
+
+        try:
+            generated_text = template.render(variables)
+        except UnknownVariableError as error:
+            raise RuntimeError(str(error)) from error
+
+        writer.writerow([variables[column] for column in selected_columns] + [generated_text])
+
+        if len(preview_rows) < preview_count:
+            preview_rows.append({"variables": variables, "text": generated_text})
+
+        if index == 1 or index % update_every == 0 or index == total_count:
+            progress_bar.progress(index / total_count, text=f"Traitement {index}/{total_count}")
+
+    progress_bar.empty()
+
+    return {
+        "preview_rows": preview_rows,
+        "download_bytes": finalize_csv_buffer(buffer),
+        "total_count": total_count,
+        "selected_columns": selected_columns,
+    }
+
+
+def render_simple_results(result: dict[str, object]) -> None:
+    """Affiche uniquement un aperçu borné pour préserver la réactivité."""
+    preview_rows = result["preview_rows"]
+    total_count = result["total_count"]
+
+    st.subheader(f"Variations générées ({total_count})")
+    st.caption(f"Aperçu limité à {len(preview_rows)} variations pour garder l’interface rapide.")
+
+    for index, generated_text in enumerate(preview_rows, start=1):
+        with st.expander(f"Variation {index}", expanded=index == 1):
+            st.text_area(
+                "Texte généré",
+                value=generated_text,
+                height=220,
+                key=f"simple_preview_{index}",
+            )
+
+    st.download_button(
+        label=f"📥 Télécharger les {total_count} variations (CSV)",
+        data=result["download_bytes"],
+        file_name="variations_simples.csv",
+        mime="text/csv",
+    )
+
+
+def render_advanced_results(result: dict[str, object]) -> None:
+    """Affiche les lignes générées avec un résumé compact des variables."""
+    preview_rows = result["preview_rows"]
+    total_count = result["total_count"]
+
+    st.subheader(f"Variations générées ({total_count})")
+    st.caption(f"Aperçu limité à {len(preview_rows)} lignes sur {total_count} pour garder l’interface fluide.")
+
+    for index, row_data in enumerate(preview_rows, start=1):
+        with st.expander(f"Ligne {index}", expanded=index == 1):
+            variables_summary = " · ".join(
+                f"{column}: {value}" for column, value in row_data["variables"].items()
+            )
+            st.markdown("**Variables utilisées**")
+            st.caption(variables_summary or "Aucune variable")
+            st.text_area(
+                "Texte généré",
+                value=row_data["text"],
+                height=220,
+                key=f"advanced_preview_{index}",
+            )
+
+    st.download_button(
+        label=f"📥 Télécharger les {total_count} variations (CSV)",
+        data=result["download_bytes"],
+        file_name="variations_completes.csv",
+        mime="text/csv",
+    )
+
+
+def render_sidebar() -> None:
+    """Affiche l’aide contextuelle et les garde-fous de saisie."""
+    with st.sidebar:
+        st.header("📖 Guide d'utilisation")
+
+        if st.session_state.mode == "simple":
+            st.markdown(
+                """
+                ### ✨ Mode Simple
+                1. Utilisez uniquement les accolades `{...}` pour les spins
+                2. Les spins imbriqués sont autorisés
+                3. La prévisualisation est limitée à 50 résultats pour garder l’outil réactif
+                4. L’export CSV contient l’intégralité du lot généré
+                """
+            )
+        elif st.session_state.mode == "advanced":
+            st.markdown(
+                f"""
+                ### 🔧 Mode Avancé (CSV)
+                1. Le séparateur est auto-détecté (`;`, `,` ou tabulation — compatible Google Sheets et Excel)
+                2. Les variables s’écrivent avec des crochets `[Nom de colonne]`
+                3. Les spins s’écrivent avec des accolades `{{option 1|option 2}}`
+                4. La taille du fichier est limitée à {MAX_FILE_SIZE / 1024 / 1024:.0f} MB
+                5. La prévisualisation est limitée à 50 lignes pour garder l’interface fluide
+                """
+            )
+        else:
+            st.markdown(
+                f"""
+                ### 🧩 Mode Multi-champs
+                1. Définissez un master spin par champ (topSeoTextTitle, topSeoText, faqQ1…)
+                2. Chaque champ devient une **colonne** dans le CSV exporté
+                3. Les variables `[Nom de colonne]` et les spins `{{option 1|option 2}}` fonctionnent comme en mode avancé
+                4. Exportez / importez votre config en **JSON** pour la réutiliser plus tard
+                5. Taille max du CSV : {MAX_FILE_SIZE / 1024 / 1024:.0f} MB
+                """
+            )
+
+        st.divider()
+        st.markdown(
+            """
+            ### 💡 Bonnes pratiques
+            - Validez votre template avant de lancer un gros lot
+            - Gardez des noms de colonnes clairs et stables
+            - Prévisualisez quelques lignes avant de télécharger l’export complet
+            """
+        )
+
+
+def render_simple_mode() -> None:
+    """Pilote le parcours de génération sans CSV."""
+    st.subheader("✏️ Entrez votre texte avec spins")
+    template_text = st.text_area(
+        "Texte avec spins",
+        key="simple_template_text",
+        height=180,
+        placeholder="Exemple : {Bonjour|Salut|Hello} à tous. {Bienvenue|Ravi de vous voir} !",
+        help="Utilisez uniquement les accolades { } pour définir les spins.",
+    )
+
+    template = inspect_template(template_text, allow_variables=False)
+
+    total_count = int(
+        st.number_input(
+            "Nombre total de variations à générer",
+            key="simple_total_count",
+            min_value=1,
+            max_value=MAX_SIMPLE_GENERATIONS,
+            value=DEFAULT_SIMPLE_COUNT,
+        )
+    )
+    preview_max = min(total_count, MAX_PREVIEW_ROWS)
+    preview_default = min(preview_max, DEFAULT_SIMPLE_PREVIEW)
+    preview_count = int(
+        st.number_input(
+            "Nombre de variations à prévisualiser",
+            key="simple_preview_count",
+            min_value=1,
+            max_value=preview_max,
+            value=preview_default,
+        )
+    )
+
+    current_signature = build_simple_signature(template_text, total_count, preview_count)
+    show_result_mismatch(SIMPLE_RESULT_KEY, current_signature)
+
+    if st.button("🔄 Générer les variations", key="simple_generate_button", type="primary"):
+        if not template_text.strip():
+            st.warning("Veuillez entrer un template avec spins.")
+        elif template is None:
+            st.warning("Corrigez le template avant de lancer la génération.")
+        else:
+            generated_result = generate_simple_result(template, total_count, preview_count)
+            generated_result["signature"] = current_signature
+            st.session_state[SIMPLE_RESULT_KEY] = generated_result
+
+    stored_result = st.session_state.get(SIMPLE_RESULT_KEY)
+    if stored_result and stored_result.get("signature") == current_signature:
+        render_simple_results(stored_result)
+
+
+def render_advanced_mode() -> None:
+    """Pilote le parcours de génération à partir d’un CSV."""
     st.subheader("📁 1. Chargez votre fichier CSV")
     uploaded_file = st.file_uploader(
-        "Choisissez un fichier CSV (séparateur : point-virgule)",
+        "Choisissez un fichier CSV (séparateur auto-détecté : ; , ou tabulation)",
         type="csv",
-        help="Format accepté : CSV avec séparateur point-virgule (;)"
+        key="advanced_uploaded_file",
+        help="Le CSV doit contenir des en-têtes. Séparateur auto-détecté (compatible exports Google Sheets et Excel).",
     )
 
-    if uploaded_file is not None:
-        # Validation et conversion du CSV
-        df = validate_and_convert_csv(uploaded_file)
-        
-        if df is not None:
-            # Aperçu des données
-            st.subheader("Aperçu des données")
-            st.dataframe(df)
-            
-            # Sélection des colonnes
-            selected_columns = st.multiselect(
-                "Sélectionnez les colonnes à utiliser comme variables",
-                df.columns.tolist(),
-                default=df.columns.tolist()
-            )
-            
-            # Zone de texte pour le spin
-            st.subheader("2. Entrez votre Master Spin")
-            spin_help = "Variables disponibles : " + ", ".join([f"[{col}]" for col in selected_columns])
-            spin_text = st.text_area(
-                "Texte avec spins",
-                help=spin_help + "\nUtilisez les crochets [colonne] pour insérer une variable, et les accolades { ... } pour les spins imbriqués.",
-                height=200,
-                placeholder="Exemple : Le département [Département] compte [Nombre de villes] {villes|communes} pour une population de [Population] habitants."
-            )
-            
-            # Validation de la syntaxe du spin
-            is_valid = True
-            if spin_text:
-                is_valid, message = validate_spin_syntax(spin_text)
-                if not is_valid:
-                    st.warning(message)
+    if uploaded_file is None:
+        return
 
-            # Nombre de prévisualisations (toujours visible)
-            preview_limit = st.number_input(
-                "Nombre de prévisualisations souhaitées",
-                min_value=1,
-                value=len(df)  # Par défaut : nombre total de lignes du CSV
+    file_bytes = uploaded_file.getvalue()
+
+    try:
+        dataframe, detected_encoding = load_cached_dataset(file_bytes)
+    except CsvLoadError as error:
+        st.error(str(error))
+        return
+
+    file_hash = hash_file_content(file_bytes)
+    st.success(
+        f"CSV chargé avec succès : {len(dataframe)} lignes, {len(dataframe.columns)} colonnes, encodage {detected_encoding}"
+    )
+
+    st.subheader("Aperçu des données")
+    st.dataframe(dataframe.head(20), use_container_width=True, hide_index=True)
+    if len(dataframe) > 20:
+        st.caption("Aperçu limité aux 20 premières lignes.")
+
+    selected_columns = st.multiselect(
+        "Sélectionnez les colonnes à utiliser comme variables",
+        options=dataframe.columns.tolist(),
+        default=dataframe.columns.tolist(),
+        key="advanced_selected_columns",
+    )
+
+    st.subheader("✏️ 2. Entrez votre Master Spin")
+    variables_help = ", ".join(f"[{column}]" for column in selected_columns) or "Aucune colonne sélectionnée"
+    template_text = st.text_area(
+        "Texte avec spins et variables",
+        key="advanced_template_text",
+        height=220,
+        placeholder="Exemple : [Département] compte {de nombreuses|plusieurs} communes pour [Population] habitants.",
+        help=f"Variables disponibles : {variables_help}",
+    )
+
+    preview_max = min(len(dataframe), MAX_PREVIEW_ROWS)
+    preview_default = min(preview_max, DEFAULT_ADVANCED_PREVIEW)
+    preview_count = int(
+        st.number_input(
+            "Nombre de lignes à prévisualiser",
+            key="advanced_preview_count",
+            min_value=1,
+            max_value=preview_max,
+            value=preview_default,
+        )
+    )
+
+    template = inspect_template(
+        template_text,
+        allow_variables=True,
+        selected_columns=selected_columns,
+    )
+
+    current_signature = build_advanced_signature(file_hash, selected_columns, template_text, preview_count)
+    show_result_mismatch(ADVANCED_RESULT_KEY, current_signature)
+
+    if st.button("🔄 Générer les variations", key="advanced_generate_button", type="primary"):
+        if not selected_columns:
+            st.warning("Sélectionnez au moins une colonne pour le mode avancé.")
+        elif not template_text.strip():
+            st.warning("Veuillez entrer un template avec variables et spins.")
+        elif template is None:
+            st.warning("Corrigez le template avant de lancer la génération.")
+        else:
+            try:
+                generated_result = generate_advanced_result(template, dataframe, selected_columns, preview_count)
+            except RuntimeError as error:
+                st.error(str(error))
+            else:
+                generated_result["signature"] = current_signature
+                st.session_state[ADVANCED_RESULT_KEY] = generated_result
+
+    stored_result = st.session_state.get(ADVANCED_RESULT_KEY)
+    if stored_result and stored_result.get("signature") == current_signature:
+        render_advanced_results(stored_result)
+
+
+def validate_multi_fields(
+    fields: list[dict[str, str]],
+    selected_columns: list[str],
+    source_columns: list[str],
+) -> tuple[list[tuple[str, TemplateDefinition]], list[str]]:
+    """Valide chaque champ multi et collecte les erreurs remontées à l’utilisateur."""
+    errors: list[str] = []
+    parsed_fields: list[tuple[str, TemplateDefinition]] = []
+    seen_names: set[str] = set()
+    reserved_names = {column for column in source_columns}
+
+    for index, field in enumerate(fields, start=1):
+        name = field["name"].strip()
+        text = field["text"].strip()
+        label = name or f"champ #{index}"
+
+        if not name:
+            errors.append(f"Champ #{index} : le nom de colonne est requis.")
+        elif not MULTI_FIELD_NAME_PATTERN.match(name):
+            errors.append(
+                f"Champ « {name} » : le nom doit commencer par une lettre et ne contenir que lettres, chiffres ou _."
             )
+        elif name in reserved_names:
+            errors.append(f"Champ « {name} » : le nom entre en conflit avec une colonne du CSV source.")
+        elif name in seen_names:
+            errors.append(f"Champ « {name} » : ce nom est utilisé par un autre champ.")
+        else:
+            seen_names.add(name)
 
-            # Bouton de génération (toujours visible)
-            if st.button("🔄 Générer les variations"):
-                if not spin_text:
-                    st.warning("Veuillez entrer un texte avec spins")
-                elif not is_valid:
-                    st.warning("Veuillez corriger la syntaxe du texte")
-                else:
-                    variations_data = []
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
-                    
-                    for index, row in df.iterrows():
-                        progress = (index + 1) / len(df)
-                        progress_bar.progress(progress)
-                        status_text.text(f"Traitement de la ligne {index + 1}/{len(df)}")
-                        
-                        variables = {col: str(row[col]) for col in selected_columns}
-                        variation = generate_variation(spin_text, variables)
-                        variations_data.append({
-                            'variables': variables,
-                            'text': variation
-                        })
-                    
-                    progress_bar.empty()
-                    status_text.empty()
-                    
-                    # Sauvegarder les variations dans session_state
-                    st.session_state.variations_data = variations_data
-                    st.session_state.preview_limit = preview_limit
+        if not text:
+            errors.append(f"Champ « {label} » : le master spin est vide.")
+            continue
 
-            # Affichage des variations si elles existent dans session_state
-            if hasattr(st.session_state, 'variations_data') and st.session_state.variations_data:
-                variations_data = st.session_state.variations_data
-                current_preview_limit = getattr(st.session_state, 'preview_limit', len(variations_data))
-                
-                st.subheader(f"Variations générées ({len(variations_data)})")
-                
-                # Utilisation du preview_limit sauvegardé
-                for i, var_data in enumerate(variations_data[:current_preview_limit], 1):
-                    with st.expander(f"Variation {i}", expanded=i==1):
-                        # Affichage des variables utilisées
-                        variables_items = list(var_data['variables'].items())
-                        
-                        if variables_items:
-                            # Initialiser l'état du toggle dans session_state
-                            toggle_key = f"show_vars_{i}"
-                            if toggle_key not in st.session_state:
-                                st.session_state[toggle_key] = False
-                            
-                            # Affichage en une seule ligne avec résumé et toggle
-                            if len(variables_items) > 1:
-                                # Créer un résumé des variables
-                                first_var = variables_items[0]
-                                remaining_count = len(variables_items) - 1
-                                
-                                # Affichage condensé avec bouton toggle intégré
-                                if st.session_state[toggle_key]:
-                                    # Mode détaillé : toutes les variables avec fond coloré
-                                    st.markdown("**📋 Variables utilisées :**")
-                                    
-                                    # Affichage en colonnes pour un meilleur layout
-                                    nb_vars = len(variables_items)
-                                    nb_cols = min(3, max(2, nb_vars // 2))
-                                    cols = st.columns(nb_cols)
-                                    
-                                    for idx, (k, v) in enumerate(variables_items):
-                                        with cols[idx % nb_cols]:
-                                            st.markdown(f"• **{k}** : `{v}`")
-                                    
-                                    # Bouton masquer plus discret
-                                    if st.button("🔼 Masquer", key=f"hide_vars_{i}", help="Revenir au mode résumé", use_container_width=False):
-                                        st.session_state[toggle_key] = False
-                                        st.rerun()
-                                else:
-                                    # Mode résumé : affichage compact et élégant
-                                    col1, col2 = st.columns([5, 1])
-                                    with col1:
-                                        st.markdown(f"📋 **{first_var[0]}** : `{first_var[1]}` ・ :gray[+{remaining_count} autres variables]")
-                                    with col2:
-                                        if st.button("👁️ Voir", key=f"show_vars_btn_{i}", help=f"Afficher les {remaining_count} autres variables", use_container_width=True):
-                                            st.session_state[toggle_key] = True
-                                            st.rerun()
-                            else:
-                                # Si une seule variable, affichage simple et élégant
-                                var = variables_items[0]
-                                st.markdown(f"📋 **{var[0]}** : `{var[1]}`")
-                        
-                        st.text_area(
-                            "Texte généré",
-                            value=var_data['text'],
-                            height=400 if i <= 10 else 100,  # 400px ≈ 20 lignes
-                            key=f"var_text_{i}"
-                        )
-                
-                # Export CSV
-                csv_data = generate_csv_download(variations_data)
-                st.download_button(
-                    label=f"📥 Télécharger les {len(variations_data)} variations (CSV)",
-                    data=csv_data,
-                    file_name="variations_completes.csv",
-                    mime="text/csv"
+        try:
+            template = parse_template(text, allow_variables=True)
+        except TemplateSyntaxError as error:
+            errors.append(f"Champ « {label} » : {error}")
+            continue
+
+        unknown_variables = find_unknown_variables(template, selected_columns)
+        if unknown_variables:
+            missing_list = ", ".join(f"[{variable}]" for variable in unknown_variables)
+            errors.append(f"Champ « {label} » : variables introuvables ({missing_list}).")
+            continue
+
+        parsed_fields.append((name, template))
+
+    return parsed_fields, errors
+
+
+def generate_multi_result(
+    parsed_fields: list[tuple[str, TemplateDefinition]],
+    dataframe,
+    selected_columns: list[str],
+    preview_count: int,
+) -> dict[str, object]:
+    """Génère une colonne par champ en parcourant le CSV une seule fois."""
+    field_names = [name for name, _ in parsed_fields]
+    headers = list(selected_columns) + field_names
+    preview_rows: list[dict[str, object]] = []
+    buffer, writer = create_csv_buffer(headers)
+    total_count = len(dataframe)
+    progress_bar = st.progress(0.0, text="Préparation des lignes CSV...")
+    update_every = max(1, total_count // 100)
+
+    for index, row_values in enumerate(dataframe[selected_columns].itertuples(index=False, name=None), start=1):
+        variables = {column: value for column, value in zip(selected_columns, row_values)}
+        generated_texts: dict[str, str] = {}
+
+        for name, template in parsed_fields:
+            try:
+                generated_texts[name] = template.render(variables)
+            except UnknownVariableError as error:
+                raise RuntimeError(str(error)) from error
+
+        writer.writerow(
+            [variables[column] for column in selected_columns]
+            + [generated_texts[name] for name in field_names]
+        )
+
+        if len(preview_rows) < preview_count:
+            preview_rows.append({"variables": variables, "texts": generated_texts})
+
+        if index == 1 or index % update_every == 0 or index == total_count:
+            progress_bar.progress(index / total_count, text=f"Traitement {index}/{total_count}")
+
+    progress_bar.empty()
+
+    return {
+        "preview_rows": preview_rows,
+        "download_bytes": finalize_csv_buffer(buffer),
+        "total_count": total_count,
+        "field_names": field_names,
+        "selected_columns": selected_columns,
+    }
+
+
+def render_multi_results(result: dict[str, object]) -> None:
+    """Affiche un aperçu par ligne avec un onglet par champ généré."""
+    preview_rows = result["preview_rows"]
+    total_count = result["total_count"]
+    field_names: list[str] = result["field_names"]
+
+    st.subheader(f"Variations générées ({total_count} lignes × {len(field_names)} champs)")
+    st.caption(f"Aperçu limité à {len(preview_rows)} lignes pour garder l’interface fluide.")
+
+    for index, row_data in enumerate(preview_rows, start=1):
+        with st.expander(f"Ligne {index}", expanded=index == 1):
+            variables_summary = " · ".join(
+                f"{column}: {value}" for column, value in row_data["variables"].items()
+            )
+            st.markdown("**Variables utilisées**")
+            st.caption(variables_summary or "Aucune variable")
+
+            tabs = st.tabs(field_names)
+            for tab, name in zip(tabs, field_names):
+                with tab:
+                    st.text_area(
+                        name,
+                        value=row_data["texts"].get(name, ""),
+                        height=200,
+                        key=f"multi_preview_{index}_{name}",
+                        label_visibility="collapsed",
+                    )
+
+    st.download_button(
+        label=f"📥 Télécharger les {total_count} lignes (CSV)",
+        data=result["download_bytes"],
+        file_name="variations_multi_champs.csv",
+        mime="text/csv",
+    )
+
+
+def render_multi_fields_editor(selected_columns: list[str]) -> list[dict[str, str]]:
+    """Affiche la liste dynamique des champs à générer."""
+    st.markdown("**Champs à générer**")
+    st.caption(
+        "Chaque champ devient une colonne dans le CSV exporté. "
+        "Le nom doit être un identifiant (lettres, chiffres, _)."
+    )
+
+    variables_hint = (
+        ", ".join(f"[{column}]" for column in selected_columns)
+        if selected_columns
+        else "Sélectionnez au moins une colonne plus haut"
+    )
+
+    field_ids = list(st.session_state[MULTI_FIELD_IDS_KEY])
+    allow_remove = len(field_ids) > 1
+
+    for index, field_id in enumerate(field_ids, start=1):
+        with st.container(border=True):
+            header_cols = st.columns([4, 1])
+            with header_cols[0]:
+                st.text_input(
+                    f"Nom du champ #{index}",
+                    key=_multi_name_key(field_id),
+                    placeholder="ex. topSeoTextTitle",
                 )
+            with header_cols[1]:
+                st.button(
+                    "🗑️ Supprimer",
+                    key=f"multi_remove_{field_id}",
+                    on_click=remove_multi_field,
+                    args=(field_id,),
+                    disabled=not allow_remove,
+                    use_container_width=True,
+                )
+            st.text_area(
+                f"Master spin #{index}",
+                key=_multi_text_key(field_id),
+                height=160,
+                placeholder="Exemple : {Pourquoi choisir|Découvrez} une [Marque] neuve...",
+                help=f"Variables disponibles : {variables_hint}",
+            )
 
-# Guide d'utilisation amélioré dans la sidebar avec focus contextuel
-with st.sidebar:
-    st.header("📖 Guide d'utilisation")
-    
-    # Affichage conditionnel du guide selon le mode actif
+    action_cols = st.columns([1, 1, 2])
+    with action_cols[0]:
+        st.button(
+            "➕ Ajouter un champ",
+            key="multi_add_field",
+            on_click=add_multi_field,
+            use_container_width=True,
+        )
+    with action_cols[1]:
+        st.download_button(
+            label="💾 Exporter la config (JSON)",
+            data=serialize_multi_fields_config(field_ids).encode("utf-8"),
+            file_name="multi_fields_config.json",
+            mime="application/json",
+            use_container_width=True,
+            key="multi_export_config",
+        )
+
+    uploaded_config = st.file_uploader(
+        "Importer une config JSON (remplace les champs actuels)",
+        type="json",
+        key="multi_import_config",
+        help=(
+            "Deux formats acceptés : "
+            "objet plat `{\"topSeoTextTitle\": \"...\", \"topSeoText\": \"...\"}` "
+            "ou liste `[{\"name\": \"...\", \"text\": \"...\"}]`."
+        ),
+    )
+    if uploaded_config is not None:
+        config_bytes = uploaded_config.getvalue()
+        config_hash = hashlib.sha1(config_bytes).hexdigest()
+        if st.session_state.get("multi_import_last_hash") != config_hash:
+            try:
+                load_multi_fields_from_json(config_bytes.decode("utf-8"))
+            except (json.JSONDecodeError, ValueError) as error:
+                st.error(f"Import JSON impossible : {error}")
+            else:
+                st.session_state["multi_import_last_hash"] = config_hash
+                st.success("Config importée. Les champs ci-dessus ont été remplacés.")
+                st.rerun()
+
+    return collect_multi_fields()
+
+
+def render_multi_mode() -> None:
+    """Pilote le parcours multi-champs à partir d’un CSV."""
+    ensure_multi_fields_initialized()
+
+    st.subheader("📁 1. Chargez votre fichier CSV")
+    uploaded_file = st.file_uploader(
+        "Choisissez un fichier CSV (séparateur auto-détecté : ; , ou tabulation)",
+        type="csv",
+        key="multi_uploaded_file",
+        help="Le CSV doit contenir des en-têtes. Séparateur auto-détecté (compatible Google Sheets et Excel).",
+    )
+
+    if uploaded_file is None:
+        return
+
+    file_bytes = uploaded_file.getvalue()
+
+    try:
+        dataframe, detected_encoding = load_cached_dataset(file_bytes)
+    except CsvLoadError as error:
+        st.error(str(error))
+        return
+
+    file_hash = hash_file_content(file_bytes)
+    st.success(
+        f"CSV chargé : {len(dataframe)} lignes, {len(dataframe.columns)} colonnes, encodage {detected_encoding}"
+    )
+
+    st.subheader("Aperçu des données")
+    st.dataframe(dataframe.head(10), use_container_width=True, hide_index=True)
+    if len(dataframe) > 10:
+        st.caption("Aperçu limité aux 10 premières lignes.")
+
+    selected_columns = st.multiselect(
+        "Sélectionnez les colonnes à utiliser comme variables",
+        options=dataframe.columns.tolist(),
+        default=dataframe.columns.tolist(),
+        key="multi_selected_columns",
+    )
+
+    st.subheader("✏️ 2. Définissez vos champs à générer")
+    fields = render_multi_fields_editor(selected_columns)
+
+    preview_max = min(len(dataframe), MAX_PREVIEW_ROWS)
+    preview_default = min(preview_max, DEFAULT_MULTI_PREVIEW)
+    preview_count = int(
+        st.number_input(
+            "Nombre de lignes à prévisualiser",
+            key="multi_preview_count",
+            min_value=1,
+            max_value=preview_max,
+            value=preview_default,
+        )
+    )
+
+    current_signature = build_multi_signature(file_hash, selected_columns, fields, preview_count)
+    show_result_mismatch(MULTI_RESULT_KEY, current_signature)
+
+    if st.button("🔄 Générer les variations", key="multi_generate_button", type="primary"):
+        if not selected_columns:
+            st.warning("Sélectionnez au moins une colonne.")
+        else:
+            parsed_fields, errors = validate_multi_fields(
+                fields, selected_columns, dataframe.columns.tolist()
+            )
+            if errors:
+                for message in errors:
+                    st.error(message)
+            elif not parsed_fields:
+                st.warning("Ajoutez au moins un champ à générer.")
+            else:
+                try:
+                    generated_result = generate_multi_result(
+                        parsed_fields, dataframe, selected_columns, preview_count
+                    )
+                except RuntimeError as error:
+                    st.error(str(error))
+                else:
+                    generated_result["signature"] = current_signature
+                    st.session_state[MULTI_RESULT_KEY] = generated_result
+
+    stored_result = st.session_state.get(MULTI_RESULT_KEY)
+    if stored_result and stored_result.get("signature") == current_signature:
+        render_multi_results(stored_result)
+
+
+def main() -> None:
+    """Assemble l’interface principale."""
+    clear_stale_widget_state()
+    render_styles()
+
+    if "mode" not in st.session_state:
+        st.session_state.mode = "simple"
+
+    st.title("🔄 Générateur de Spin")
+    st.markdown("### 📋 Mode de fonctionnement")
+
+    mode_col_1, mode_col_2, mode_col_3 = st.columns(3)
+
+    with mode_col_1:
+        st.button(
+            "✨ Mode Simple",
+            on_click=set_mode,
+            args=("simple",),
+            type="primary" if st.session_state.mode == "simple" else "secondary",
+            use_container_width=True,
+        )
+
+    with mode_col_2:
+        st.button(
+            "🔧 Mode Avancé (CSV)",
+            on_click=set_mode,
+            args=("advanced",),
+            type="primary" if st.session_state.mode == "advanced" else "secondary",
+            use_container_width=True,
+        )
+
+    with mode_col_3:
+        st.button(
+            "🧩 Mode Multi-champs",
+            on_click=set_mode,
+            args=("multi",),
+            type="primary" if st.session_state.mode == "multi" else "secondary",
+            use_container_width=True,
+        )
+
+    st.markdown("---")
+
     if st.session_state.mode == "simple":
-        st.markdown("""
-        ### ✨ Mode Simple
-        1. **✏️ Écrivez votre texte**
-           - Utilisez uniquement les accolades `{}` pour créer des variations
-           - Les spins imbriqués sont supportés (ex : `{plus de {100|cent} ans|un siècle}`)
-           - Séparez les options par des `|`
-           - Exemple : `{Bonjour|Salut|Hey} tout le monde !` ou `{très {bon|excellent}|fantastique}`
-        """)
-        
-        # Bouton pour voir le mode avancé
-        if st.button("🔧 Voir le mode avancé", type="secondary"):
-            st.session_state.mode = "advanced"
-            st.rerun()
-            
+        render_simple_mode()
+    elif st.session_state.mode == "advanced":
+        render_advanced_mode()
     else:
-        st.markdown("""
-        ### 🔧 Mode Avancé (CSV)
-        
-        1. **📁 Fichier CSV**
-           - Utilisez un séparateur point-virgule (;)
-           - Encodage UTF-8 ou Latin1
-           - En-têtes obligatoires pour les variables
-        2. **🔠 Variables**
-           - Format : `[nom_colonne]` (crochets)
-           - Les noms doivent correspondre aux en-têtes du CSV
-           - Exemple : `[ville], [population] habitants`
-        3. **✨ Spins**
-           - Utilisez les accolades `{}` pour les spins imbriqués
-           - Exemple : `{La belle|La grande} ville de [ville]`
-           - Les crochets `[]` servent uniquement aux variables
-        4. **📊 Export**
-           - CSV avec toutes les variables
-           - Une colonne pour le texte généré
-           - Prévisualisation limitée à 50 variations
-        """)
-        
-        # Bouton pour voir le mode simple
-        if st.button("✨ Voir le mode simple", type="secondary"):
-            st.session_state.mode = "simple"
-            st.rerun()
-    
-    # Astuces communes aux deux modes
-    st.divider()
-    st.markdown("""
-        ### 💡 Astuces
-        - Les variations sont toujours aléatoires
-        - Les spins imbriqués sont désormais supportés (accolades `{}` et crochets `[]`)
-        - Vérifiez la syntaxe avant de générer
-        - Prévisualisez avant d'exporter
-    """)
+        render_multi_mode()
+
+    render_sidebar()
+
+
+if __name__ == "__main__":
+    main()

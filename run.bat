@@ -1,18 +1,29 @@
 @echo off
+setlocal
+
 echo 🚀 Lancement du Générateur de Spin Content...
 
-REM Vérifier si l'environnement virtuel existe
-if not exist "venv" (
-    echo ❌ Environnement virtuel non trouvé. Créez-le avec :
-    echo    python -m venv venv
-    echo    venv\Scripts\activate
-    echo    pip install -r requirements.txt
-    pause
-    exit /b 1
+if not exist "venv\Scripts\python.exe" (
+    echo 📦 Environnement virtuel introuvable, création en cours...
+    where py >nul 2>&1
+    if %errorlevel%==0 (
+        py -3.11 -m venv venv >nul 2>&1
+        if %errorlevel% neq 0 py -3 -m venv venv
+    ) else (
+        python -m venv venv
+    )
+
+    if %errorlevel% neq 0 (
+        echo ❌ Python 3.11+ est requis pour lancer l'application.
+        exit /b 1
+    )
 )
 
-REM Lancer Streamlit
-venv\Scripts\python.exe -m streamlit run spin_generator.py
+venv\Scripts\python.exe -c "import streamlit, pandas" >nul 2>&1
+if %errorlevel% neq 0 (
+    echo 📥 Installation des dépendances...
+    venv\Scripts\python.exe -m pip install -r requirements.txt
+    if %errorlevel% neq 0 exit /b 1
+)
 
-echo ✅ Application fermée
-pause 
+venv\Scripts\python.exe -m streamlit run spin_generator.py --server.headless true --server.port 8501
