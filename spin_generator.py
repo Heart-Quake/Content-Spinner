@@ -5,6 +5,8 @@ import pandas as pd
 import csv
 import io
 
+from automation_seo_theme import apply_automation_seo_theme
+
 # Constantes
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
 ALLOWED_EXTENSIONS = {'csv'}  # Non utilisée car Streamlit gère déjà les extensions
@@ -251,6 +253,7 @@ st.markdown("""
     }
     </style>
 """, unsafe_allow_html=True)
+apply_automation_seo_theme()
 
 # Titre principal avec emoji corrigé
 st.title("🔄 Générateur de Spin")
