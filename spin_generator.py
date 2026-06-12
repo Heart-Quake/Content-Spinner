@@ -214,46 +214,54 @@ def load_multi_fields_from_json(raw_json: str) -> None:
 
 
 def render_styles() -> None:
-    """Allège la feuille de style et supprime les sélecteurs morts."""
+    """Ajoute uniquement les ajustements spécifiques au générateur de spin."""
     st.markdown(
         """
         <style>
-        .main > div {
-            padding: 2rem 2.5rem 2.5rem;
+        .stDownloadButton button {
+            width: 100%;
         }
 
-        .block-container {
-            max-width: 1400px;
-        }
-
-        .stButton button {
-            transition: all 0.2s ease;
-            transform: translateY(0);
-            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
-        }
-
-        .stButton button:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 6px 14px rgba(15, 23, 42, 0.08);
-        }
-
-        .stButton button[kind="primary"] {
-            background-color: #0f766e;
-            border-color: #0f766e;
+        [data-testid="stTextArea"] textarea {
+            line-height: 1.55 !important;
         }
 
         .stButton button[kind="secondary"] {
-            border: 1px solid #0f766e;
-            color: #0f766e;
-            background-color: transparent;
+            background: transparent !important;
+            border-color: var(--yn-border) !important;
+            color: var(--yn-text) !important;
         }
 
         .stButton button[kind="secondary"]:hover {
-            background-color: rgba(15, 118, 110, 0.08);
+            background: var(--yn-card-hover) !important;
+            border-color: var(--yn-accent) !important;
+            color: var(--yn-text) !important;
         }
 
-        .stDownloadButton button {
-            width: 100%;
+        .stButton button:disabled,
+        .stDownloadButton button:disabled {
+            cursor: not-allowed;
+            opacity: 0.5;
+            transform: none !important;
+        }
+
+        .mode-context {
+            color: var(--yn-muted);
+            font-size: 0.95rem;
+            line-height: 1.55;
+            margin: -0.35rem 0 0.85rem;
+            max-width: 72ch;
+        }
+
+        .mode-divider {
+            border-bottom: 1px solid var(--yn-border);
+            margin: 1.2rem 0 1.35rem;
+        }
+
+        @media (max-width: 760px) {
+            .tool-title {
+                font-size: 2.25rem;
+            }
         }
         </style>
         """,
@@ -440,48 +448,52 @@ def render_advanced_results(result: dict[str, object]) -> None:
 def render_sidebar() -> None:
     """Affiche l’aide contextuelle et les garde-fous de saisie."""
     with st.sidebar:
-        st.header("📖 Guide d'utilisation")
+        st.header("Guide")
 
         if st.session_state.mode == "simple":
             st.markdown(
                 """
-                ### ✨ Mode Simple
-                1. Utilisez uniquement les accolades `{...}` pour les spins
-                2. Les spins imbriqués sont autorisés
-                3. La prévisualisation est limitée à 50 résultats pour garder l’outil réactif
-                4. L’export CSV contient l’intégralité du lot généré
+                **Mode simple**
+
+                1. Utilisez les accolades `{...}` pour les spins.
+                2. Les spins imbriqués sont autorisés.
+                3. La prévisualisation est limitée à 50 résultats.
+                4. L’export CSV contient tout le lot généré.
                 """
             )
         elif st.session_state.mode == "advanced":
             st.markdown(
                 f"""
-                ### 🔧 Mode Avancé (CSV)
-                1. Le séparateur est auto-détecté (`;`, `,` ou tabulation — compatible Google Sheets et Excel)
-                2. Les variables s’écrivent avec des crochets `[Nom de colonne]`
-                3. Les spins s’écrivent avec des accolades `{{option 1|option 2}}`
-                4. La taille du fichier est limitée à {MAX_FILE_SIZE / 1024 / 1024:.0f} MB
-                5. La prévisualisation est limitée à 50 lignes pour garder l’interface fluide
+                **Mode avancé CSV**
+
+                1. Le séparateur est auto-détecté (`;`, `,` ou tabulation).
+                2. Les variables s’écrivent avec des crochets `[Nom de colonne]`.
+                3. Les spins s’écrivent avec des accolades `{{option 1|option 2}}`.
+                4. Taille max : {MAX_FILE_SIZE / 1024 / 1024:.0f} MB.
+                5. La prévisualisation est limitée à 50 lignes.
                 """
             )
         else:
             st.markdown(
                 f"""
-                ### 🧩 Mode Multi-champs
-                1. Définissez un master spin par champ (topSeoTextTitle, topSeoText, faqQ1…)
-                2. Chaque champ devient une **colonne** dans le CSV exporté
-                3. Les variables `[Nom de colonne]` et les spins `{{option 1|option 2}}` fonctionnent comme en mode avancé
-                4. Exportez / importez votre config en **JSON** pour la réutiliser plus tard
-                5. Taille max du CSV : {MAX_FILE_SIZE / 1024 / 1024:.0f} MB
+                **Mode multi-champs**
+
+                1. Définissez un master spin par champ.
+                2. Chaque champ devient une colonne dans le CSV exporté.
+                3. Variables et spins fonctionnent comme en mode avancé.
+                4. La configuration peut être importée ou exportée en JSON.
+                5. Taille max du CSV : {MAX_FILE_SIZE / 1024 / 1024:.0f} MB.
                 """
             )
 
         st.divider()
         st.markdown(
             """
-            ### 💡 Bonnes pratiques
-            - Validez votre template avant de lancer un gros lot
-            - Gardez des noms de colonnes clairs et stables
-            - Prévisualisez quelques lignes avant de télécharger l’export complet
+            **Bonnes pratiques**
+
+            - Validez le template avant un gros lot.
+            - Gardez des noms de colonnes clairs et stables.
+            - Prévisualisez quelques lignes avant l’export complet.
             """
         )
 
@@ -942,14 +954,31 @@ def main() -> None:
     if "mode" not in st.session_state:
         st.session_state.mode = "simple"
 
-    st.title("🔄 Générateur de Spin")
-    st.markdown("### 📋 Mode de fonctionnement")
+    st.markdown(
+        """
+        <section class="tool-hero">
+            <div class="tool-kicker">Content automation</div>
+            <h1 class="tool-title">Générateur de Spin Content</h1>
+            <p class="tool-lead">
+                Crée des variantes propres depuis un master spin simple, un CSV de variables
+                ou plusieurs champs exportables.
+            </p>
+        </section>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.subheader("Mode de fonctionnement")
+    st.markdown(
+        '<p class="mode-context">Choisissez le parcours adapté au volume et à la structure de sortie attendue.</p>',
+        unsafe_allow_html=True,
+    )
 
     mode_col_1, mode_col_2, mode_col_3 = st.columns(3)
 
     with mode_col_1:
         st.button(
-            "✨ Mode Simple",
+            "Mode simple",
             on_click=set_mode,
             args=("simple",),
             type="primary" if st.session_state.mode == "simple" else "secondary",
@@ -958,7 +987,7 @@ def main() -> None:
 
     with mode_col_2:
         st.button(
-            "🔧 Mode Avancé (CSV)",
+            "Mode CSV",
             on_click=set_mode,
             args=("advanced",),
             type="primary" if st.session_state.mode == "advanced" else "secondary",
@@ -967,14 +996,14 @@ def main() -> None:
 
     with mode_col_3:
         st.button(
-            "🧩 Mode Multi-champs",
+            "Multi-champs",
             on_click=set_mode,
             args=("multi",),
             type="primary" if st.session_state.mode == "multi" else "secondary",
             use_container_width=True,
         )
 
-    st.markdown("---")
+    st.markdown('<div class="mode-divider"></div>', unsafe_allow_html=True)
 
     if st.session_state.mode == "simple":
         render_simple_mode()
