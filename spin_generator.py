@@ -507,8 +507,7 @@ else:
 
 # Guide d'utilisation amélioré dans la sidebar avec focus contextuel
 with st.sidebar:
-    # Ajout du logo avec le paramètre correct
-    st.image("DR SEO Header.svg", use_container_width=True)
+    st.image("logo-full-cream.png", use_container_width=True)
     
     st.header("📖 Guide d'utilisation")
     

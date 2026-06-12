@@ -230,7 +230,7 @@ spin_tool/
 ├── run.sh               # Script de lancement (macOS/Linux)
 ├── run.bat              # Script de lancement (Windows)
 ├── exemple.csv          # Fichier CSV d'exemple
-├── DR SEO Header.svg    # Logo de l'application
+├── logo-full-cream.png  # Logo Yuri & Neil
 └── venv/               # Environnement virtuel (ignoré par Git)
 ```
 
