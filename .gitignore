@@ -2,7 +2,10 @@
 venv/
 env/
 .venv/
-.env/
+ENV/
+.env
+.env.*
+!.env.example
 
 # Cache Python
 __pycache__/
@@ -28,10 +31,22 @@ Thumbs.db
 
 # Logs
 *.log
+.pytest_cache/
+.coverage
+htmlcov/
 
 # Fichiers temporaires
 *.tmp
 *.temp
+
+# Exports et artefacts locaux
+outputs/
+output/
+exports/
+cache/
+*.sqlite
+*.sqlite3
+*.db
 
 # Fichiers de test uploadés
 *.csv
